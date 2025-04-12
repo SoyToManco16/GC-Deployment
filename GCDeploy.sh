@@ -21,6 +21,18 @@ error()   { echo -e "\e[31m[ERROR]\e[0m $*"; }    # Rojo
 
 # --------------------------------------------- #
 
+# Comprobar el tipo de configuración
+if [ "$1" == "0" ]; then
+  info "Despliegue sin máxima seguridad"
+  CONFIG_TYPE=0
+elif [ "$1" == "1" ]; then
+  info "Despliegue de máxima seguridad"
+  CONFIG_TYPE=1
+else
+  error "Falta un argumento, modo de uso 'sudo ./GCDeploy.sh <0/1>'"
+  exit 1
+fi
+
 # Mostrar info por pantalla
 info "Bienvenido a GCDeploy"
 info "Cargando archivo de configuración\n"
@@ -73,9 +85,9 @@ sudo apt update && sudo apt install -y \
 # Preparar chrony
 info "Configurando chrony\n"
 if systemctl is-active --quiet chrony; then
-    ok "Chrony !!"
     sudo systemctl enable --now chrony
     chronyc sources; echo ""
+    ok "Chrony configurado con éxito"
 else 
     error "Chrony no está funcionando"
     exit 1 
@@ -118,7 +130,6 @@ sudo systemctl restart mariadb
 sudo systemctl enable --now mariadb
 
 if systemctl is-active --quiet mariadb; then
-    ok "MariaDB !!"
 
     # Crear bases de datos y usuarios y permisos
     sudo mysql -u root -p"$DB_ROOT_PASS" -h "$DB_HOST" <<EOF
@@ -143,6 +154,7 @@ if systemctl is-active --quiet mariadb; then
 
     FLUSH PRIVILEGES;
 EOF
+    ok "MariaDB configurada con éxito"
 else 
     error "MariaDB no está funcionando"
     exit 1
@@ -151,13 +163,21 @@ fi
 # Preparar memcached
 info "Configurando memcached"
 if systemctl is-active --quiet memcached; then
-  ok "Memcached !!"
   sudo sed -i 's/^# -l 127.0.0.1/-l 127.0.0.1/' /etc/memcached.conf
   sudo systemctl enable memcached
   sudo systemctl restart memcached
+    ok "Memcached configurado con éxito"
 else
   error "Memcached no está funcionando"
   exit 1
+fi
+
+# Configurar servicios para máxima seguridad
+if [ $CONFIG_TYPE == "1" ]; then
+    info "Configurando para mayor seguridad"
+    sudo ./GCMaxSecurity.sh
+else 
+    info "Continuando con el despliegue"
 fi
 
 
