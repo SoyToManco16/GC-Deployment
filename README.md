@@ -6,6 +6,7 @@ Welcome to the GC deployment process
 
 Before proceeding with the installation, it is essential to verify that the system configuration meets the necessary requirements.
 
+Sudo user: We have to configure a sudo user, we can use gen_sudo_usr.sh to accelerate the process
 Hostname: OpenStack relies on a properly configured hostname. Make sure your machine’s name is correctly set to avoid issues during the process.
 Netplan: The network configuration must be correctly defined to ensure connectivity and optimal service operation.
 
@@ -18,6 +19,7 @@ Español
 Bienvenido/a al proceso de despliegue de GC
 Antes de proceder con la instalación, es fundamental verificar que la configuración del sistema cumple con los requisitos necesarios.
 
+Usuario sudo: Tener configurado un usuario sudo (no root), usar gen_sudo_usr.sh para agilizar el proceso
 Hostname: OpenStack depende de un hostname correctamente configurado. Asegúrese de que el nombre de su máquina es el adecuado para evitar problemas durante el proceso.
 Netplan: La configuración de red debe estar correctamente definida para garantizar la conectividad y el funcionamiento óptimo de los servicios.
 
@@ -30,6 +32,7 @@ Portugues
 Bem-vindo ao processo de implementação do GC
 Antes de prosseguir com a instalação, é fundamental verificar se a configuração do sistema atende aos requisitos necessários.
 
+Utilizador sudo: tenha um utilizador sudo configurado (não root), utilize o gen_sudo_usr.sh para acelerar o processo
 Hostname: O OpenStack depende de um nome de host configurado corretamente. Certifique-se de que o nome da sua máquina está ajustado corretamente para evitar problemas durante o processo.
 Netplan: A configuração da rede deve estar devidamente definida para garantir conectividade e funcionamento ideal dos serviços.
 
