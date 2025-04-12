@@ -23,10 +23,10 @@ error()   { echo -e "\e[31m[ERROR]\e[0m $*"; }    # Rojo
 
 # Comprobar el tipo de configuración
 if [ "$1" == "0" ]; then
-  info "Despliegue sin máxima seguridad"
+  info "Bienvenido a GCDeploy"
   CONFIG_TYPE=0
 elif [ "$1" == "1" ]; then
-  info "Despliegue de máxima seguridad"
+  info "Bienvenido a GCDeployMaxSecured"
   CONFIG_TYPE=1
 else
   error "Falta un argumento, modo de uso 'sudo ./GCDeploy.sh <0/1>'"
@@ -34,7 +34,6 @@ else
 fi
 
 # Mostrar info por pantalla
-info "Bienvenido a GCDeploy"
 info "Cargando archivo de configuración\n"
 
 # Comprobar si el archivo de configuración existe
@@ -99,8 +98,8 @@ sudo systemctl enable --now rabbitmq-server
 sudo systemctl start rabbitmq-server
 
 if systemctl is-active --quiet rabbitmq-server; then
-    sudo rabbitmqctl add_user "$RABBIT_USER" "$RABBIT_PASS"
-    sudo rabbitmqctl set_permissions "$RABBIT_USER" ".*" ".*" ".*"
+    sudo rabbitmqctl add_user "$RABBITMQ_USER" "$RABBITMQ_PASS"
+    sudo rabbitmqctl set_permissions "$RABBITMQ_USER" ".*" ".*" ".*"
 
     ok "RabbitMQ configurado con éxito"
     info "Usuarios de RabbitMQ: $(sudo rabbitmqctl list_users)"
@@ -132,7 +131,7 @@ sudo systemctl enable --now mariadb
 if systemctl is-active --quiet mariadb; then
 
     # Crear bases de datos y usuarios y permisos
-    sudo mysql -u root -p"$DB_ROOT_PASS" -h "$DB_HOST" <<EOF
+    mysql -u root -p"$DB_ROOT_PASS" -h "localhost" <<EOF
 
     CREATE DATABASE IF NOT EXISTS $KEYSTONE_DB;
     CREATE DATABASE IF NOT EXISTS $GLANCE_DB;
