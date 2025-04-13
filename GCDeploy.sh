@@ -74,12 +74,14 @@ sudo apt update && sudo apt install -y \
   memcached python3-memcache \
   apache2 libapache2-mod-wsgi-py3 \
   keystone glance \
-  nova-api nova-scheduler nova-conductor nova-compute \
-  neutron-server neutron-linuxbridge-agent \
-  cinder-api cinder-scheduler lvm2 \
+  nova-api nova-scheduler nova-conductor nova-compute nova-novncproxy \
+  neutron-server neutron-plugin-ml2 neutron-linuxbridge-agent \
+  neutron-dhcp-agent neutron-metadata-agent neutron-l3-agent \
+  cinder-api cinder-scheduler cinder-volume lvm2 \
   openstack-dashboard \
   crudini \
-  chrony
+  chrony \
+  bridge-utils net-tools jq ethtool lsof tcpdump
 
 # Preparar chrony
 info "Configurando chrony\n"
@@ -109,8 +111,6 @@ else
     exit 1
 fi
 
-
-
 # Preparar bases de datos
 info "Configurando MariaDB"
 
@@ -131,7 +131,7 @@ sudo systemctl enable --now mariadb
 if systemctl is-active --quiet mariadb; then
 
     # Crear bases de datos y usuarios y permisos
-    mysql -u root -p"$DB_ROOT_PASS" -h "localhost" <<EOF
+    sudo mysql -u root -p"$DB_ROOT_PASS" <<EOF
 
     CREATE DATABASE IF NOT EXISTS $KEYSTONE_DB;
     CREATE DATABASE IF NOT EXISTS $GLANCE_DB;
@@ -171,6 +171,95 @@ else
   exit 1
 fi
 
+# --------------------------------------------- #
+#    Configuración de servicios de OpenStack    #
+# --------------------------------------------- #
+
+# ---------------- KEYSTONE ------------------
+
+# Configurar Keystone (Servicio de identidad)
+info "Configurando Keystone..."
+sudo crudini --set /etc/keystone/keystone.conf database connection "mysql+pymysql://$KEYSTONE_DBUSER:$KEYSTONE_DBPASS@$DB_HOST/$KEYSTONE_DB"
+
+# Configurar claves Fernet
+info "Configurando claves Fernet..."
+sudo crudini --set /etc/keystone/keystone.conf token provider fernet
+sudo crudini --set /etc/keystone/keystone.conf token expiration 3600
+
+info "Inicializando claves Fernet..."
+sudo keystone-manage fernet_setup --keystone-user keystone --keystone-group keystone
+sudo keystone-manage credential_setup --keystone-user keystone --keystone-group keystone
+
+# Sincronizar con la BBDD
+info "Sincronizando con la BBDD..."
+sudo keystone-manage db_sync
+
+# Inicializar Keystone
+info "Inicializando Keystone..."
+sudo keystone-manage bootstrap \
+  --bootstrap-password "$OS_PASSWORD" \
+  --bootstrap-admin-url http://$HOSTNAME:5000/v3/ \
+  --bootstrap-internal-url http://$HOSTNAME:5000/v3/ \
+  --bootstrap-public-url http://$HOSTNAME:5000/v3/ \
+  --bootstrap-region-id RegionOne
+
+# Reiniciar Apache2
+sudo systemctl enable apache2
+sudo systemctl restart apache2
+
+# Verificar si está funcionando
+if curl -s http://$HOSTNAME:5000/v3/ | grep -q "version"; then
+    ok "Keystone responde correctamente en http://$HOSTNAME:5000/v3/"
+else
+    error "Keystone no está respondiendo correctamente. Revisa la configuración de Apache y el servicio de Keystone."
+    exit 1
+fi
+
+# Todo OK !!
+ok "Keystone instalado y configurado correctamente"
+
+# ----------------- GLANCE -------------------
+
+# Instalar Glance
+info "Instalando Glance..."
+sudo apt install -y glance
+
+# Configurar la conexión a la base de datos
+info "Configurando la base de datos de Glance..."
+sudo crudini --set /etc/glance/glance-api.conf database connection "mysql+pymysql://$GLANCE_DBUSER:$GLANCE_DBPASS@$DB_HOST/$GLANCE_DB"
+
+# Configurar keystone_authtoken
+info "Configurando autenticación Keystone..."
+sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken www_authenticate_uri http://$HOSTNAME:5000
+sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken auth_url http://$HOSTNAME:5000
+sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken memcached_servers $HOSTNAME:11211
+sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken auth_type password
+sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken project_domain_name Default
+sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken user_domain_name Default
+sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken project_name service
+sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken username $GLANCE_USER
+sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken password $GLANCE_PASS
+
+# Configurar paste_deploy
+sudo crudini --set /etc/glance/glance-api.conf paste_deploy flavor keystone
+
+# Configurar almacenamiento local
+info "Configurando almacenamiento local de imágenes..."
+sudo crudini --set /etc/glance/glance-api.conf glance_store stores file,http
+sudo crudini --set /etc/glance/glance-api.conf glance_store default_store file
+sudo crudini --set /etc/glance/glance-api.conf glance_store filesystem_store_datadir /var/lib/glance/images/
+
+# Crear la base de datos
+info "Sincronizando la base de datos de Glance..."
+sudo glance-manage db_sync
+
+# Reiniciar servicio
+info "Reiniciando servicios de Glance..."
+sudo systemctl restart glance-api
+sudo systemctl enable glance-api
+
+ok "Glance instalado y configurado correctamente"
+
 # Configurar servicios para máxima seguridad
 if [ $CONFIG_TYPE == "1" ]; then
     info "Configurando para mayor seguridad"
@@ -178,6 +267,3 @@ if [ $CONFIG_TYPE == "1" ]; then
 else 
     info "Continuando con el despliegue"
 fi
-
-
-
