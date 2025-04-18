@@ -41,7 +41,7 @@ if [[ -f ./gc_env.conf ]]; then
     source ./gc_env.conf
     ok "Variables de entorno configuradas correctamente\n"
 else
-    error "El archivo no existe, abortando..."
+    error "El archivo de configuración no existe, abortando..."
     exit
 fi
 
@@ -67,7 +67,7 @@ info "Actualizando sistema e instalando dependencias\n"
 sudo apt update && sudo apt -y upgrade && sudo apt -y dist-upgrade
 
 # Instalar dependencias
-sudo apt update && sudo apt install -y \
+sudo apt install -y \
   python3-openstackclient \
   mariadb-server python3-pymysql \
   rabbitmq-server \
@@ -218,47 +218,87 @@ fi
 # Todo OK !!
 ok "Keystone instalado y configurado correctamente"
 
-# ----------------- GLANCE -------------------
+# ---------------------- CONFIGURACIÓN DE LA BASE DE DATOS ----------------------
 
-# Instalar Glance
-info "Instalando Glance..."
-sudo apt install -y glance
-
-# Configurar la conexión a la base de datos
 info "Configurando la base de datos de Glance..."
-sudo crudini --set /etc/glance/glance-api.conf database connection "mysql+pymysql://$GLANCE_DBUSER:$GLANCE_DBPASS@$DB_HOST/$GLANCE_DB"
+sudo crudini --set /etc/glance/glance-api.conf database connection "mysql+pymysql://$GLANCE_DBUSER:$GLANCE_DBPASS@$DB_HOST/$GLANCE_DB" || error "Error al configurar la base de datos."
 
-# Configurar keystone_authtoken
+# ---------------------- CONFIGURACIÓN DE AUTHENTICACIÓN KEYSSTONE ----------------------
+
 info "Configurando autenticación Keystone..."
-sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken www_authenticate_uri http://$HOSTNAME:5000
-sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken auth_url http://$HOSTNAME:5000
-sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken memcached_servers $HOSTNAME:11211
-sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken auth_type password
-sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken project_domain_name Default
-sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken user_domain_name Default
-sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken project_name service
-sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken username $GLANCE_USER
-sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken password $GLANCE_PASS
+sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken www_authenticate_uri http://$HOSTNAME:5000 || error "Error al configurar www_authenticate_uri."
+sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken auth_url http://$HOSTNAME:5000/v3 || error "Error al configurar auth_url."
+sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken memcached_servers $HOSTNAME:11211 || error "Error al configurar memcached_servers."
+sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken auth_type password || error "Error al configurar auth_type."
+sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken project_domain_name Default || error "Error al configurar project_domain_name."
+sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken user_domain_name Default || error "Error al configurar user_domain_name."
+sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken project_name service || error "Error al configurar project_name."
+sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken username $GLANCE_USER || error "Error al configurar username."
+sudo crudini --set /etc/glance/glance-api.conf keystone_authtoken password $GLANCE_PASS || error "Error al configurar password."
 
-# Configurar paste_deploy
-sudo crudini --set /etc/glance/glance-api.conf paste_deploy flavor keystone
+# ---------------------- CONFIGURACIÓN DE PASTE DEPLOY ----------------------
 
-# Configurar almacenamiento local
+sudo crudini --set /etc/glance/glance-api.conf paste_deploy flavor keystone || error "Error al configurar paste_deploy."
+
+# ---------------------- CONFIGURACIÓN DE ALMACENAMIENTO LOCAL ----------------------
+
 info "Configurando almacenamiento local de imágenes..."
-sudo crudini --set /etc/glance/glance-api.conf glance_store stores file,http
-sudo crudini --set /etc/glance/glance-api.conf glance_store default_store file
-sudo crudini --set /etc/glance/glance-api.conf glance_store filesystem_store_datadir /var/lib/glance/images/
+sudo crudini --set /etc/glance/glance-api.conf glance_store stores file,http || error "Error al configurar stores."
+sudo crudini --set /etc/glance/glance-api.conf glance_store default_store file || error "Error al configurar default_store."
+sudo crudini --set /etc/glance/glance-api.conf glance_store filesystem_store_datadir /var/lib/glance/images/ || error "Error al configurar filesystem_store_datadir."
 
-# Crear la base de datos
+# ---------------------- SINCRONIZACIÓN DE LA BASE DE DATOS ----------------------
+
 info "Sincronizando la base de datos de Glance..."
-sudo glance-manage db_sync
+sudo glance-manage db_sync || error "Error al sincronizar la base de datos."
 
-# Reiniciar servicio
+# ---------------------- REINICIO DE LOS SERVICIOS ----------------------
+
 info "Reiniciando servicios de Glance..."
-sudo systemctl restart glance-api
-sudo systemctl enable glance-api
+sudo systemctl restart glance-api || error "Error al reiniciar glance-api."
+sudo systemctl enable glance-api || error "Error al habilitar glance-api."
 
-ok "Glance instalado y configurado correctamente"
+# ---------------------- REGISTRO EN KEYSTONE ----------------------
+
+info "Registrando el servicio Glance en Keystone..."
+
+# Crear usuario glance en Keystone (si no existe)
+openstack user show $GLANCE_USER &>/dev/null || openstack user create --domain default --password "$GLANCE_PASS" $GLANCE_USER || error "Error al crear usuario glance."
+
+# Darle rol de admin al usuario glance en el proyecto service
+openstack role add --project service --user $GLANCE_USER admin || error "Error al asignar rol al usuario glance."
+
+# Registrar el servicio glance (si no existe)
+openstack service show image &>/dev/null || openstack service create --name glance --description "OpenStack Image" image || error "Error al registrar el servicio Glance."
+
+# Crear los endpoints de Glance (si no existen)
+openstack endpoint list --service image | grep -q 'public' || (
+  openstack endpoint create --region RegionOne image public http://$HOSTNAME:9292 || error "Error al crear endpoint público."
+  openstack endpoint create --region RegionOne image internal http://$HOSTNAME:9292 || error "Error al crear endpoint interno."
+  openstack endpoint create --region RegionOne image admin http://$HOSTNAME:9292 || error "Error al crear endpoint de administración."
+)
+
+ok "Glance registrado correctamente en Keystone."
+
+# ---------------------- COMPROBAR EL SERVICIO ----------------------
+
+info "Comprobando que Glance está funcionando..."
+if systemctl is-active --quiet glance-api; then
+  ok "Glance instalado y configurado correctamente."
+else
+  error "Glance no está funcionando correctamente."
+fi
+
+
+
+
+
+
+# Revisar glance 
+
+
+
+
 
 # Configurar servicios para máxima seguridad
 if [ $CONFIG_TYPE == "1" ]; then
