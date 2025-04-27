@@ -1,25 +1,25 @@
 #!/bin/bash
 
-# Comprobar que se pasan dos argumentos
-if [ -z "$1" ] || [ -z "$2" ]; then
-    echo -e "Uso: $0 <nombre_usuario> <contraseña>"
+# Comprobar que se pasa un argumento
+if [ -z "$1" ]; then
+    echo -e "Error: Debes introducir un nombre de usuario."
     exit 1
 fi
 
-USUARIO="$1"
-CONTRASEÑA="$2"
-
 # Crear usuario con `useradd`
-sudo useradd -m -s /bin/bash "$USUARIO"
+sudo useradd -m -s /bin/bash "$1"
 
-# Asignar la contraseña
-echo "$USUARIO:$CONTRASEÑA" | sudo chpasswd
+# Asignar una contraseña (puedes modificar esto según lo necesites)
+echo "$1:password" | sudo chpasswd
 
 # Añadir al grupo sudo
-sudo usermod -aG sudo "$USUARIO"
+sudo usermod -aG sudo "$1"
 
 # Modificar sudoers con visudo
-echo "$USUARIO ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/$USUARIO > /dev/null
+echo "$1 ALL=(ALL) NOPASSWD:ALL" | sudo tee -a /etc/sudoers.d/$1 > /dev/null
 
-# Confirmación
-echo "El usuario $USUARIO ha sido creado con acceso sudo sin contraseña."
+# Contraseña
+sudo passwd "$1"
+
+# Exito
+echo "El usuario $1 ha sido añadido al grupo sudoers"
